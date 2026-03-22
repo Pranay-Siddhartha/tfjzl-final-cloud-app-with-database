@@ -6,6 +6,7 @@ from django.contrib.auth.models import User
 from django.shortcuts import get_object_or_404, render, redirect
 from django.urls import reverse
 from django.views import generic
+from .models import Choice, Submission
 from django.contrib.auth import login, logout, authenticate
 import logging
 # Get an instance of a logger
@@ -133,4 +134,59 @@ def extract_answers(request):
 #def show_exam_result(request, course_id, submission_id):
 
 
+
+def submit(request, course_id):
+    course = get_object_or_404(Course, pk=course_id)
+    user = request.user
+
+   
+    enrollment = Enrollment.objects.get(user=user, course=course)
+    submission = Submission.objects.create(enrollment=enrollment)
+    choices = extract_answers(request)
+
+
+    for choice_id in choices:
+        choice = Choice.objects.get(id=choice_id)
+        submission.choices.add(choice)
+
+    submission.save()
+
+
+    return HttpResponseRedirect(
+        reverse('onlinecourse:show_exam_result', args=(submission.id,))
+    )
+
+
+def show_exam_result(request, submission_id):
+    submission = get_object_or_404(Submission, pk=submission_id)
+
+    choices = submission.choices.all()
+    total_score = 0
+    max_score = 0
+
+    # Get all questions related to the course
+    questions = []
+    for lesson in submission.enrollment.course.lesson_set.all():
+        for question in lesson.question_set.all():
+            questions.append(question)
+
+    for question in questions:
+        max_score += question.grade
+        correct_choices = question.choice_set.filter(is_correct=True)
+
+        selected_choices = choices.filter(question=question)
+
+        if set(correct_choices) == set(selected_choices):
+            total_score += question.grade
+
+    grade = (total_score / max_score) * 100 if max_score > 0 else 0
+
+    context = {
+        'course': submission.enrollment.course,
+        'submission': submission,
+        'grade': grade,
+        'questions': questions,
+    }
+
+    return render(request, 'onlinecourse/exam_result_bootstrap.html', context)
 
